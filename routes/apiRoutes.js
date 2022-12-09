@@ -8,7 +8,9 @@ const Recruiter = require("../db/Recruiter");
 const Job = require("../db/Job");
 const Application = require("../db/Application");
 const Rating = require("../db/Rating");
+const Resume = require("../db/Resume");
 const axios = require("axios");
+const jwtAnonAuth = require("../lib/jwtAnonAuth");
 
 const router = express.Router();
 
@@ -50,7 +52,7 @@ router.post("/jobs", jwtAuth, (req, res) => {
 });
 
 // to get all the jobs [pagination] [for recruiter personal and for everyone]
-router.get("/jobs", jwtAuth, (req, res) => {
+router.get("/jobs", jwtAnonAuth, (req, res) => {
   let user = req.user;
 
   let findParams = {};
@@ -61,11 +63,22 @@ router.get("/jobs", jwtAuth, (req, res) => {
   // const skip = page - 1 >= 0 ? (page - 1) * limit : 0;
 
   // to list down jobs posted by a particular recruiter
-  if (user.type === "recruiter" && req.query.myjobs) {
+  if (user && user.type === "recruiter" && req.query.myjobs) {
     findParams = {
       ...findParams,
       userId: user._id,
     };
+  } else {
+    if (user && req.query.q) {
+      User.findOne({ _id: user._id }).then((genericUser) => {
+        genericUser.recentSearch = req.query.q;
+        genericUser.save().catch((err) => {});
+      });
+    }
+
+    if (user && !req.query.q && user.recentSearch) {
+      req.query.q = user.recentSearch;
+    }
   }
 
   if (req.query.q) {
@@ -255,6 +268,7 @@ router.get("/jobs", jwtAuth, (req, res) => {
             });
             Job.insertMany(newJobs).then((response) => {
               let newPosts = posts.concat(response);
+
               res.json(newPosts);
             });
           })
@@ -271,7 +285,7 @@ router.get("/jobs", jwtAuth, (req, res) => {
 });
 
 // to get info about a particular job
-router.get("/jobs/:id", jwtAuth, (req, res) => {
+router.get("/jobs/:id", (req, res) => {
   Job.findOne({ _id: req.params.id })
     .then((job) => {
       if (job == null) {
@@ -397,7 +411,7 @@ router.get("/user", jwtAuth, (req, res) => {
 });
 
 // get user details from id
-router.get("/user/:id", jwtAuth, (req, res) => {
+router.get("/user/:id", (req, res) => {
   User.findOne({ _id: req.params.id })
     .then((userData) => {
       if (userData === null) {
@@ -498,6 +512,17 @@ router.put("/user", jwtAuth, (req, res) => {
         }
         if (data.resume) {
           jobApplicant.resume = data.resume;
+          let resInParts = data.resume.split("/");
+          let resId = resInParts[resInParts.length - 1].split(".")[0];
+          new Resume({
+            userId: user._id,
+            resume: data.resume,
+            resumeId: resId,
+          })
+            .save()
+            .catch((err) => {
+              console.log(error);
+            });
         }
         if (data.profile) {
           jobApplicant.profile = data.profile;
@@ -713,7 +738,7 @@ router.get("/applications", jwtAuth, (req, res) => {
         as: "recruiter",
       },
     },
-    { $unwind: "$recruiter" },
+    { $unwind: { path: "$recruiter", preserveNullAndEmptyArrays: true } },
     {
       $match: {
         [user.type === "recruiter" ? "recruiterId" : "userId"]: user._id,
