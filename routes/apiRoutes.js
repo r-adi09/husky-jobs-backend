@@ -76,7 +76,7 @@ router.get("/jobs", jwtAnonAuth, (req, res) => {
       });
     }
 
-    if (user && !req.query.q && user.recentSearch) {
+    if (user && user.type !== "admin" && !req.query.q && user.recentSearch) {
       req.query.q = user.recentSearch;
     }
   }
@@ -145,6 +145,11 @@ router.get("/jobs", jwtAnonAuth, (req, res) => {
       },
     };
   }
+
+  findParams = {
+    ...findParams,
+    blocked: { $in: [null, false] },
+  };
 
   if (req.query.asc) {
     if (Array.isArray(req.query.asc)) {
@@ -295,6 +300,42 @@ router.get("/jobs/:id", (req, res) => {
         return;
       }
       res.json(job);
+    })
+    .catch((err) => {
+      res.status(400).json(err);
+    });
+});
+
+// Admin block job
+router.put("/jobs/block/:id", jwtAuth, (req, res) => {
+  const user = req.user;
+  if (user.type != "admin") {
+    res.status(401).json({
+      message: "You don't have permissions to block the job",
+    });
+    return;
+  }
+  Job.findOne({
+    _id: req.params.id,
+  })
+    .then((job) => {
+      if (job == null) {
+        res.status(404).json({
+          message: "Job does not exist",
+        });
+        return;
+      }
+      job.blocked = true;
+      job
+        .save()
+        .then(() => {
+          res.json({
+            message: "Job details updated successfully",
+          });
+        })
+        .catch((err) => {
+          res.status(400).json(err);
+        });
     })
     .catch((err) => {
       res.status(400).json(err);
